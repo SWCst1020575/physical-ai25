@@ -18,10 +18,10 @@ test_scene = "replica_v1/apartment_0/habitat/mesh_semantic.ply"
 sim_settings = {
     "scene": test_scene,  # Scene path
     "default_agent": 0,  # Index of the default agent
-    "sensor_height": 1.5,  # Height of sensors in meters, relative to the agent
+    "sensor_height": 2.5,  # Height of sensors in meters, relative to the agent
     "width": 512,  # Spatial resolution of the observations
     "height": 512,
-    "sensor_pitch": 0,  # sensor pitch (x rotation in rads)
+    "sensor_pitch": -(np.pi/2),  # sensor pitch (x rotation in rads)
 }
 
 cam_extr = []
