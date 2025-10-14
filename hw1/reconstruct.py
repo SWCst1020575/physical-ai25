@@ -97,7 +97,7 @@ def execute_global_registration_t_to_s(tgt_down, src_down, tgt_fpfh, src_fpfh, v
             o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
             o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(dist),
         ],
-        criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(400000, 1000),
+        criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(100000, .999),
     )
     return result
 
