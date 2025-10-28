@@ -238,7 +238,8 @@ def reconstruct(args):
         world_T_curr = world_T_curr @ T_t_to_s
 
         # 把第 (i+1) 幀放到世界
-        t_down_world = tgt_down.voxel_down_sample(voxel_size)
+        # t_down_world = tgt_down.voxel_down_sample(voxel_size)
+        t_down_world = tgt_down
         t_down_world.transform(world_T_curr)
 
         # 輕度去噪（避免豎直針）
