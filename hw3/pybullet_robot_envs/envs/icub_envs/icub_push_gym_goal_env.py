@@ -6,8 +6,9 @@ import os, inspect
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 os.sys.path.insert(0,currentdir)
 
-import gym
-from gym import spaces
+import gymnasium as gym
+from gymnasium import spaces
+import gymnasium_robotics
 import numpy as np
 import time
 import math as m
@@ -17,7 +18,7 @@ from pybullet_robot_envs.envs.world_envs.world_env import get_objects_list
 from pybullet_robot_envs.envs.utils import goal_distance, scale_gym_data
 
 
-class iCubPushGymGoalEnv(gym.GoalEnv, iCubPushGymEnv):
+class iCubPushGymGoalEnv(gymnasium_robotics.core.GoalEnv, iCubPushGymEnv):
     metadata = {'render.modes': ['human', 'rgb_array'],
                 'video.frames_per_second': 50}
 

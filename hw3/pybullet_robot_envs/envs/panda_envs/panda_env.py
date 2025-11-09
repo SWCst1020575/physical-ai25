@@ -7,7 +7,7 @@ currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentfram
 os.sys.path.insert(0, currentdir)
 
 import pybullet as p
-from gym.utils import seeding
+from gymnasium.utils import seeding
 from pybullet_robot_envs.robot_data import franka_panda
 
 import numpy as np

@@ -21,7 +21,7 @@ import sys
 import tempfile
 import time
 
-import gym
+import gymnasium as gym
 import numpy as np
 from tasks import cameras
 from tasks.grippers import Spatula

@@ -7,9 +7,9 @@ currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentfram
 print ("current_dir=" + currentdir)
 os.sys.path.insert(0,currentdir)
 
-import gym
-from gym import spaces
-from gym.utils import seeding
+import gymnasium as gym
+from gymnasium import spaces
+from gymnasium.utils import seeding
 
 import pybullet as p
 from pybullet_robot_envs.envs.panda_envs.panda_env import pandaEnv

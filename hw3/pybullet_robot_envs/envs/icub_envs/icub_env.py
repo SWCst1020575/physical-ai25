@@ -9,7 +9,7 @@ os.sys.path.insert(0, parentdir)
 
 import pybullet as p
 from pybullet_robot_envs.robot_data import iCub
-from gym.utils import seeding
+from gymnasium.utils import seeding
 
 import math as m
 import numpy as np

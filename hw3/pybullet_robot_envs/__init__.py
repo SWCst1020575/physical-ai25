@@ -1,8 +1,8 @@
 
 
 import logging
-import gym
-from gym.envs.registration import register
+import gymnasium as gym
+from gymnasium.envs.registration import register
 
 register(
         id='iCubReach-v0',
@@ -81,7 +81,7 @@ register(
 
 # --------------------------- #
 def getList():
-    btenvs = ['- ' + spec.id for spec in gym.envs.registry.all() if spec.id.find('iCub')>=0]
+    btenvs = ['- ' + spec.id for spec in gym.envs.registry.values() if spec.id.find('iCub')>=0]
     return btenvs
 
 getList()

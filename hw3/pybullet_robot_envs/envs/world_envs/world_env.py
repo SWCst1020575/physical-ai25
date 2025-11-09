@@ -9,7 +9,7 @@ os.sys.path.insert(0, currentdir)
 import numpy as np
 import math as m
 import pybullet as p
-from gym.utils import seeding
+from gymnasium.utils import seeding
 
 import pybullet_data
 # from pybullet_object_models import ycb_objects, superquadric_objects

@@ -23,7 +23,7 @@ import robot_data
 import numpy as np
 import time
 import math as m
-import gym
+import gymnasium as gym
 import sys, getopt
 
 def main(argv):
