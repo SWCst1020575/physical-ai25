@@ -48,45 +48,78 @@ def your_ik(robot_id, new_pose : list or tuple or np.ndarray,
                 base_pos, max_iters : int=1000, stop_thresh : float=.001):
 
 
-
     joint_limits = np.asarray([
             [-3*np.pi/2, -np.pi/2], # joint1
             [-2.3562, -1],           # joint2
-            [-17, 17],              # joint3
-            [-17, 17],              # joint4
-            [-17, 17],              # joint5
-            [-17, 17],              # joint6
+            [-17, 17],               # joint3
+            [-17, 17],               # joint4
+            [-17, 17],               # joint5
+            [-17, 17],               # joint6
         ])
 
     # get current joint angles and gripper pos, (gripper pos is fixed)
     num_q = p.getNumJoints(robot_id)
     q_states = p.getJointStates(robot_id, range(0, num_q))
     
-    tmp_q = np.asarray([x[0] for x in q_states][2:8]) # current joint angles 6d (You only need to modify this)
-        
-    # -------------------------------------------------------------------------------- #
-    # --- TODO: Read the task description                                          --- #
-    # --- Task 2 : Compute Inverse-Kinematic Solver of the robot by yourself.      --- #
-    # ---          Try to implement `your_ik` function WITHOUT using ANY pybullet  --- #
-    # ---          API. (40% for accuracy)                                         --- #
-    # --- Note : please modify the code in `your_ik` function.                     --- #
-    # -------------------------------------------------------------------------------- #
-    
-    #### your code ####
+    q = np.asarray([x[0] for x in q_states][2:8], dtype=float) # current joint angles 6d
 
-    # TODO: update tmp_q
-    # tmp_q = ? # may be more than one line
+    # Target pose parsing
+    target_pose = np.asarray(new_pose, dtype=float)
+    assert target_pose.shape[0] == 7, "new_pose must be 7D: [x,y,z,qx,qy,qz,qw]"
+    tgt_pos = target_pose[:3]
+    tgt_quat = target_pose[3:]
 
-    # hint : 
-    # 1. You may use `your_fk` function and jacobian matrix to do this
-    # 2. Be careful when computing the delta x
-    # 3. You may use some hyper parameters (i.e., step rate) in optimization loops
+    # FK model
+    DH = get_ur5_DH_params()
 
-    ###################
-    
-    raise NotImplementedError
+    # Hyperparameters
+    alpha = 0.5                 # step size for joint update
+    damping = 1e-3              # damping factor for DLS pseudoinverse
+    w_pos = 1.0                 # weight for positional error
+    w_ori = 1.0                 # weight for orientation error
+    max_step = 0.2              # limit per-iteration joint update (rad)
 
-    return list(tmp_q) # 6 DoF
+    # Iterative IK using Jacobian pseudo-inverse (damped least squares)
+    for _ in range(max_iters):
+        cur_pose, J = your_fk(DH, q, base_pos)
+
+        cur_pos = cur_pose[:3]
+        cur_quat = cur_pose[3:]
+
+        # Position error (in world frame)
+        e_pos = tgt_pos - cur_pos
+
+        # Orientation error via rotation vector (current -> target)
+        # Ensure shortest quaternion path by flipping sign if needed
+        cq = np.array(cur_quat, dtype=float)
+        tq = np.array(tgt_quat, dtype=float)
+        if np.dot(cq, tq) < 0.0:
+            tq = -tq
+        R_err = R.from_quat(tq) * R.from_quat(cq).inv()
+        e_ori = R_err.as_rotvec()
+
+        # Stack 6D task-space error
+        e = np.hstack([w_pos * e_pos, w_ori * e_ori])
+
+        # Stopping criterion on combined error
+        if np.linalg.norm(e, ord=2) < stop_thresh:
+            break
+
+        # Damped least squares pseudoinverse: J^T (J J^T + λ^2 I)^{-1}
+        JJt = J @ J.T
+        lamb2I = (damping ** 2) * np.eye(JJt.shape[0])
+        J_pinv = J.T @ np.linalg.inv(JJt + lamb2I)
+
+        dq = alpha * (J_pinv @ e)
+
+        # Limit step size to avoid instability
+        dq = np.clip(dq, -max_step, max_step)
+
+        # Update and clamp to joint limits
+        q = q + dq
+        q = np.clip(q, joint_limits[:, 0], joint_limits[:, 1])
+
+    return list(q) # 6 DoF
 
 
 # TODO: [for your information]
