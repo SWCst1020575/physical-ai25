@@ -47,7 +47,7 @@ def your_fk(DH_params : dict, q : list or tuple or np.ndarray, base_pos) -> np.n
     assert len(DH_params) == 6 and len(q) == 6, f'Both DH_params and q should contain 6 values,\n' \
                                                 f'but get len(DH_params) = {DH_params}, len(q) = {len(q)}'
 
-    A = get_matrix_from_pose(base_pose) # a 4x4 matrix, type should be np.ndarray
+    A = get_matrix_from_pose(base_pose) # world->base transform (4x4)
     jacobian = np.zeros((6, 6)) # a 6x6 matrix, type should be np.ndarray
 
     # -------------------------------------------------------------------------------- #
@@ -58,12 +58,66 @@ def your_fk(DH_params : dict, q : list or tuple or np.ndarray, base_pos) -> np.n
     # -------------------------------------------------------------------------------- #
     
     #### your code ####
-    
+    # Classic DH convention:
+    # T_i = Rz(theta_i) @ Tz(d_i) @ Tx(a_i) @ Rx(alpha_i)
 
-    # A = ? # may be more than one line
-    # jacobian = ? # may be more than one line
+    def rot_x(alpha: float) -> np.ndarray:
+        ca, sa = np.cos(alpha), np.sin(alpha)
+        T = np.eye(4)
+        T[:3, :3] = np.array([[1, 0, 0],
+                               [0, ca, -sa],
+                               [0, sa,  ca]])
+        return T
 
-    raise NotImplementedError
+    def rot_z(theta: float) -> np.ndarray:
+        ct, st = np.cos(theta), np.sin(theta)
+        T = np.eye(4)
+        T[:3, :3] = np.array([[ ct, -st, 0],
+                               [ st,  ct, 0],
+                               [  0,   0, 1]])
+        return T
+
+    def trans_x(a: float) -> np.ndarray:
+        T = np.eye(4)
+        T[0, 3] = a
+        return T
+
+    def trans_z(d: float) -> np.ndarray:
+        T = np.eye(4)
+        T[2, 3] = d
+        return T
+
+    # Keep track of each joint frame origin and z-axis (expressed in world frame)
+    origins = [A[:3, 3].copy()]
+    z_axes = [A[:3, 2].copy()]
+
+    T = A.copy()
+    for i in range(6):
+        a_i = DH_params[i]['a']
+        d_i = DH_params[i]['d']
+        alpha_i = DH_params[i]['alpha']
+        theta_i = q[i]
+
+        T_i = rot_z(theta_i) @ trans_z(d_i) @ trans_x(a_i) @ rot_x(alpha_i)
+        T = T @ T_i
+
+        # Store current frame origin and z-axis in world frame
+        origins.append(T[:3, 3].copy())
+        z_axes.append(T[:3, 2].copy())
+
+    # End-effector pose matrix
+    A = T
+
+    # Geometric Jacobian for revolute joints
+    p_e = origins[-1]
+    for i in range(6):
+        z = z_axes[i]
+        p_i = origins[i]
+        Jv = np.cross(z, (p_e - p_i))
+        Jw = z
+        jacobian[:3, i] = Jv
+        jacobian[3:, i] = Jw
+
     # hint : 
     # https://automaticaddison.com/the-ultimate-guide-to-jacobian-matrices-for-robotics/
     
