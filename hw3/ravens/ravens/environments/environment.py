@@ -21,14 +21,16 @@ import sys
 import tempfile
 import time
 
+
 import gymnasium as gym
-import numpy as np
+
 from tasks import cameras
 from tasks.grippers import Spatula
 from utils import pybullet_utils
 from utils import utils
 
 import pybullet as p
+import numpy as np
 
 import sys
 

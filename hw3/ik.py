@@ -45,7 +45,7 @@ def pybullet_ik(robot_id, new_pose : list or tuple or np.ndarray,
 
 
 def your_ik(robot_id, new_pose : list or tuple or np.ndarray, 
-                base_pos, max_iters : int=1000, stop_thresh : float=.001):
+                base_pos=None, max_iters : int=1000, stop_thresh : float=.001):
 
 
     joint_limits = np.asarray([
@@ -57,11 +57,15 @@ def your_ik(robot_id, new_pose : list or tuple or np.ndarray,
             [-17, 17],               # joint6
         ])
 
-    # get current joint angles and gripper pos, (gripper pos is fixed)
-    num_q = p.getNumJoints(robot_id)
-    q_states = p.getJointStates(robot_id, range(0, num_q))
-    
-    q = np.asarray([x[0] for x in q_states][2:8], dtype=float) # current joint angles 6d
+    # get current joint angles for the 6 revolute joints (robust across URDFs)
+    n_joints = p.getNumJoints(robot_id)
+    joint_infos = [p.getJointInfo(robot_id, i) for i in range(n_joints)]
+    revolute_ids = [j[0] for j in joint_infos if j[2] == p.JOINT_REVOLUTE]
+    if len(revolute_ids) < 6:
+        # fallback: assume first 6 joints form the arm
+        revolute_ids = list(range(6))
+    q_states = p.getJointStates(robot_id, revolute_ids)
+    q = np.asarray([x[0] for x in q_states], dtype=float)  # 6-DoF
 
     # Target pose parsing
     target_pose = np.asarray(new_pose, dtype=float)
@@ -73,7 +77,7 @@ def your_ik(robot_id, new_pose : list or tuple or np.ndarray,
     DH = get_ur5_DH_params()
 
     # Hyperparameters
-    alpha = 0.5                 # step size for joint update
+    alpha = 0.4                 # step size for joint update
     damping = 1e-3              # damping factor for DLS pseudoinverse
     w_pos = 1.0                 # weight for positional error
     w_ori = 1.0                 # weight for orientation error
@@ -81,7 +85,13 @@ def your_ik(robot_id, new_pose : list or tuple or np.ndarray,
 
     # Iterative IK using Jacobian pseudo-inverse (damped least squares)
     for _ in range(max_iters):
-        cur_pose, J = your_fk(DH, q, base_pos)
+        # determine base pose if not provided
+        if base_pos is None:
+            base_ref, _ = p.getBasePositionAndOrientation(robot_id)
+        else:
+            base_ref = base_pos
+
+        cur_pose, J = your_fk(DH, q, base_ref)
 
         cur_pos = cur_pose[:3]
         cur_quat = cur_pose[3:]
