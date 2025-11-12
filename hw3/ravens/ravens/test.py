@@ -90,6 +90,9 @@ def main(unused_argv):
 
     # Run testing and save total rewards with last transition info.
     results = []
+    avg_time = []
+    ik_episode_stats = []  # (episode, calls, total_s, avg_ms, max_ms)
+    ik_solver_name = None
     print("============================ Task 3 : Transporter Network ============================\n")
     for i in range(ds.n_episodes):
       print(f'Test: {i + 1}/{ds.n_episodes}')
@@ -99,23 +102,62 @@ def main(unused_argv):
       np.random.seed(seed)
       env.seed(seed)
       env.set_task(task)
+      # Reset IK stats for this episode
+      if hasattr(env, 'reset_ik_stats'):
+        env.reset_ik_stats()
       obs = env.reset()
       info = None
       reward = 0
+      total_time = 0.0
       for _ in range(task.max_steps):
         act = agent.act(obs, info, goal)
         obs, reward, done, info = env.step(act)
         total_reward += reward
         print(f'Total Reward: {total_reward} Done: {done}')
+
         if done:
           break
       results.append((total_reward, info))
+      avg_time.append(total_time)
+
+      # Collect IK stats for this episode
+      if hasattr(env, 'get_ik_stats'):
+        s = env.get_ik_stats()
+        avg_ms = s['avg_time_s'] * 1000.0
+        max_ms = s['max_time_s'] * 1000.0
+        if ik_solver_name is None:
+          ik_solver_name = s.get('solver', 'ik')
+        ik_episode_stats.append((i + 1, s['calls'], s['total_time_s'], avg_ms, max_ms))
 
       # Save results.
       with tf.io.gfile.GFile(
           os.path.join(FLAGS.root_dir, f'{name}-{FLAGS.n_steps}.pkl'),
           'wb') as f:
         pickle.dump(results, f)
+
+    # Print averaged IK performance across episodes for this run
+    if ik_episode_stats:
+      n_eps = len(ik_episode_stats)
+      total_calls = sum(c for _, c, _, _, _ in ik_episode_stats)
+      total_time_s = sum(t for _, _, t, _, _ in ik_episode_stats)
+      global_avg_ms_per_call = (total_time_s / total_calls * 1000.0) if total_calls > 0 else 0.0
+      max_ms_overall = max(m for _, _, _, _, m in ik_episode_stats)
+      print(f"IK[{ik_solver_name}] avg over {n_eps} eps: calls={total_calls}, total={total_time_s:.6f}s, avg_per_call={global_avg_ms_per_call:.3f}ms, max_overall={max_ms_overall:.3f}ms")
+
+    # Save IK performance CSV for this run
+    if ik_episode_stats:
+      csv_path = os.path.join(FLAGS.root_dir, f'ik_perf-{name}.csv')
+      try:
+        with tf.io.gfile.GFile(csv_path, 'w') as f:
+          f.write('episode,calls,total_time_s,avg_time_ms,max_time_ms\n')
+          for e, c, t, a, m in ik_episode_stats:
+            f.write(f'{e},{c},{t:.6f},{a:.3f},{m:.3f}\n')
+        # print(f"Saved IK performance to {csv_path}")
+      except Exception as e:
+        # print(f"Failed to write IK performance CSV: {e}")
+        pass
+
+    # print(f"Average running time of each episode: {np.mean(avg_time):.4f} s")
 
 
   # Print score 

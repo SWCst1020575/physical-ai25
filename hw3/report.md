@@ -4,41 +4,52 @@
 
 ### 1.1 Briefly explain how you implement your_fk() function
 
-* **DH convention used:** classic D-H (frame transform: rotate about z by $θ$, translate along z by $d$, translate along x by $a$, rotate about x by $α$).
-* **Compute transforms:** build each joint transform $T_i = R_z(\theta_i),T_z(d_i),T_x(a_i),R_x(\alpha_i)$. Multiply sequentially to get the end-effector transform in world frame.
-* **End-effector pose:** extract position (p_e) and orientation (converted to quaternion in (x,y,z,w) format).
-* **Jacobian:** geometric Jacobian for 6 revolute joints — store each joint origin (o_i) and joint axis (z_i) in world frame while accumulating transforms; then for joint (i)
+* Build the 4×4 homogeneous transform for each link using the **classic D-H** order
+  $T_i = R_z(\theta_i);T_z(d_i);T_x(a_i);R_x(\alpha_i)$, and multiply them from the world→base transform `A` onward. The code computes each `T_i` and accumulates `T = T @ T_i`. 
 
-  * linear part (J_v^i = z_i \times (p_e - o_i))
-  * angular part (J_\omega^i = z_i)
-* **Small adjustment:** alignment matrix (provided in template) applied to match simulator convention before returning 7D pose.
+* While accumulating transforms **recording each joint frame origin** and the **joint z-axis** so we can later compute the geometric Jacobian. 
 
-Key code excerpt (from `fk.py`):
+* After the loop extracting the end-effector position `p_e` and compute the Jacobian columns for revolute joints:
+
+  * linear part $J_v^i = z_i \times (p_e - o_i)$
+  * angular part $J_\omega^i = z_i$.
+    The implementation directly fills `jacobian[:3,i]` and `jacobian[3:,i]`. 
+
+* Finally an “adjustment” rotation is applied to match simulator conventions, the 4×4 `A` is converted to a 7D pose `(x,y,z,qx,qy,qz,qw)`, and the function returns `(pose_7d, jacobian)`. 
+
+#### Code from `fk.py`
 
 ```python
-# build elementary transforms (classic DH)
+# build per-joint transform (classic DH)
 T_i = rot_z(theta_i) @ trans_z(d_i) @ trans_x(a_i) @ rot_x(alpha_i)
 T = T @ T_i
-# record origin and z-axis in world frame
-origins.append(T[:3,3].copy()); z_axes.append(T[:3,2].copy())
-# after loop: compute Jacobian
+
+# store world-frame origin and z-axis
+origins.append(T[:3, 3].copy())
+z_axes.append(T[:3, 2].copy())
+
+# Jacobian (geometric) for revolute joints
 p_e = origins[-1]
 for i in range(6):
     z = z_axes[i]; p_i = origins[i]
     Jv = np.cross(z, (p_e - p_i)); Jw = z
-    jacobian[:3,i] = Jv; jacobian[3:,i] = Jw
+    jacobian[:3, i] = Jv; jacobian[3:, i] = Jw
 ```
 
-(implementation in `fk.py`). 
 
 ### 1.2 What is the difference between D-H convention and Craig’s convention (Modified D-H Conveition)?
 
-* **Classic D-H (used here):** each link transform is (A_i = R_z(\theta_i),T_z(d_i),T_x(a_i),R_x(\alpha_i)). Joint parameters are associated with (z_{i-1}) axes; frames are placed according to the classical recipe.
-* **Modified D-H (Craig’s):** transforms are re-arranged: (A_i = R_x(\alpha_{i-1}),T_x(a_{i-1}),R_z(\theta_i),T_z(d_i)). The main difference is where the rotations/translations are applied (order changes) and therefore frame placement changes — modified D-H often produces frame definitions that are more convenient for some robot URDFs but must be used consistently.
+* **Classic D-H (used in code):** each link transform is
+  $A_i = R_z(\theta_i);T_z(d_i);T_x(a_i);R_x(\alpha_i)$. Frames are attached so that parameters $a_i,\alpha_i$ refer to link *i*, while $\theta_i, d_i$ are joint variables around/along $z_{i-1}$.
+
+* **Modified (Craig’s) D-H:** the order of elementary operations is changed to
+  $A_i = R_x(\alpha_{i-1});T_x(a_{i-1});R_z(\theta_i);T_z(d_i)$. In practice this means frames are placed differently.
+* The two conventions produce different numeric transforms for the same parameter table.
+
 
 ### 1.3 Complete the D-H table in your report following D-H convention
 
-I used the DH parameters provided in the template (`get_ur5_DH_params()` in `fk.py`):
+The template is provided in `get_ur5_DH_params()`:
 
 | Joint (i) | a (m)   | d (m)   | α (rad) | θ (variable) |
 | --------- | ------- | ------- | ------- | ------------ |
@@ -48,87 +59,71 @@ I used the DH parameters provided in the template (`get_ur5_DH_params()` in `fk.
 | 4         | 0.0000  | 0.10930 | +π/2    | θ₄           |
 | 5         | 0.0000  | 0.09475 | -π/2    | θ₅           |
 | 6         | 0.0000  | 0.20230 | 0       | θ₆           |
-| 7 (tool)  | 0.0000  | 0.00000 | 0       | 0 (fixed)    |
+| 7         | 0.0000  | 0.00000 | 0       | 0            |
 
-(These are taken from `get_ur5_DH_params()` in the template.) 
+### 1.4 Result
 
----
+![](./images/task1.png)
 
-## 2. Task 2 — Inverse kinematics (10% + 5% bonus)
+## 2. Task 2 — Inverse kinematics
 
-### 2.1 Implementation summary (`your_ik()`)
+### 2.1 Briefly explain how you implement your_ik() function
 
-* **Approach:** Iterative Jacobian-based IK with *damped least squares* (DLS) pseudo-inverse.
-* **Error term:** 6D task error composed of position error and orientation error. Orientation error is computed as the rotation vector from current orientation to target:
+* Compute current end-effector pose and geometric Jacobian `J` by calling `your_fk()`. 
+* Form a 6D error vector `e = [w_pos * (tgt_pos - cur_pos), w_ori * e_ori]` where `e_ori` is the rotation vector from current orientation to target.
+* Compute DLS pseudo-inverse as $J^+ = J^T (J J^T + \lambda^2 I)^{-1}$ and the joint update $\Delta q = \alpha J^+ e$. 
+* Limit per-iteration step size (`max_step`) and clamp joints to joint limits after each update. 
 
-  * ensure quaternion signs are consistent (flip sign if dot<0) then compute `R_err = R(tgt)*R(cur).inv()` and `e_ori = R_err.as_rotvec()`.
-* **Pseudo-inverse (DLS):** compute (J^+ = J^T (J J^T + \lambda^2 I)^{-1}).
-* **Joint update:** (\Delta q = \alpha , J^+ e), then clamp per-iteration step and joint limits.
-* **Hyperparameters tuned:** `alpha` (step size), `damping` (λ), `max_step`, and stopping threshold.
-
-Core iteration (from `ik.py`):
+### Code from `ik.py`
 
 ```python
-# compute current FK and Jacobian
-cur_pose, J = your_fk(DH, q, base_ref)
-# form 6D error e = [w_pos*(tgt_pos - cur_pos), w_ori*e_ori]
+# orientation error (ensure shortest path)
+cq = np.array(cur_quat); tq = np.array(tgt_quat)
+if np.dot(cq, tq) < 0.0: tq = -tq
+R_err = R.from_quat(tq) * R.from_quat(cq).inv()
+e_ori = R_err.as_rotvec()
+# stack task error
+e = np.hstack([w_pos * (tgt_pos - cur_pos), w_ori * e_ori])
+# DLS pseudo-inverse
 JJt = J @ J.T
 J_pinv = J.T @ np.linalg.inv(JJt + (damping**2)*np.eye(JJt.shape[0]))
 dq = alpha * (J_pinv @ e)
+# clip step & joint limits
 dq = np.clip(dq, -max_step, max_step)
 q = np.clip(q + dq, joint_limits[:,0], joint_limits[:,1])
 ```
 
-(implementation in `ik.py`). 
 
-### 2.2 Problems encountered & handling
+### 2.2 What problems do you encounter and how do you deal with them?
 
-* **Quaternion sign ambiguity:** if current and target quaternions have negative dot, flip target quaternion to use the shortest rotation — implemented before computing `R_err`.
-* **Singularities / ill-conditioned Jacobian:** near singularities `JJ^T` can be close to singular. I used DLS (small damping λ) to regularize inversion and keep updates stable.
-* **Large / unstable updates:** limited per-iteration joint change with `max_step` and used small `alpha`. This reduces overshoot and improves convergence.
-* **Joint limits:** clips were added after each update to keep q within feasible bounds.
-* **Convergence tuning:** balanced `alpha`, `damping`, and `stop_thresh` to trade speed vs stability. Default values in my implementation gave robust convergence on the provided testcases.
+1. **Singularities / ill-conditioned Jacobian:**
 
-### 2.3 Bonus — other methods tried
+   * Problem: near singular robot configurations the matrix $J J^T$ can be nearly singular and the Moore–Penrose inverse becomes unstable.
+   * Fix: use **Damped Least Squares** (add $\lambda^2 I$ to $J J^T$) before inversion. The small damping `damping=1e-3` regularizes the inversion and reduces extreme joint steps. 
 
-* **Pure pseudo-inverse (Moore–Penrose) without damping:** converges quickly when far from singularities but unstable near singularities — often produced large joint steps and occasional divergence.
-* **Jacobian-transpose:** simple and sometimes faster per-iteration but requires careful tuning of step size and scales poorly for mixed position/orientation tasks.
-* **Result:** Damped least-squares (the chosen method) provided the best stability/robustness tradeoff across the provided testcases and the block insertion trials.
+2. **Large / unstable joint updates:**
 
----
+   * Problem: raw pseudoinverse sometimes produces large `Δq` and overshoots.
+   * Fix:
+     scale update by `alpha` (step size) and clip each component to `[-max_step, max_step]` per iteration to avoid large jumps.  
 
-## 3. Task 3 — Transporter Network (block insertion) (5%)
 
-### 3.1 Comparison: `your_ik()` vs `pybullet_ik()`
+### 2.3 Bonus
 
-* The template includes a `pybullet_ik()` wrapper that calls `p.calculateInverseKinematics(...)` (fast, closed-form/heuristic solver inside PyBullet).
-* **Accuracy:** On the provided block-insertion testcases both solvers reach comparable end-effector pose accuracy for most cases (within thresholds) when `your_ik()` converges.
-* **Robustness:** `pybullet_ik()` is generally faster (single-call) and may succeed where iterative solvers need more iterations or tuning, but:
+None
 
-  * `your_ik()` gives explicit control over damping, weighting (position vs orientation), step limits and joint limits, which can be advantageous for reproducible behavior and for integrating with Transporter pipelines that require predictable motion.
-* **Speed:** `pybullet_ik()` is faster per-call. `your_ik()` can be slower (iterative), but acceptable for offline evaluation and fine control; in our tests it completed the 10 insertion trials when convergence conditions were satisfied.
-* **Practical note:** Using `your_ik()` inside the Transporter pipeline worked reliably after the hyperparameters (`alpha`, `damping`, `max_step`, and `stop_thresh`) were tuned; however, for strict real-time needs `pybullet_ik()` is the pragmatic choice.
+### 2.4 Result
 
----
+![](./images/task2.png)
 
-## 4. Short conclusions & tips
+## 3. Task 3 — Transporter Network
 
-* The essential pieces are: correct DH frame setup → correct forward kinematics → accurate Jacobian → stable DLS IK.
-* Tuning `damping` and `max_step` is critical to avoid oscillation/instability.
-* Handle quaternion sign before computing orientation error.
-* Keep the FK and Jacobian in the same frame convention as your simulator (I applied the small adjustment matrix used in the template before returning pose).
+### 3.1 Compare your results between your_ik function and pybullet_ik
 
----
 
-## References / files
+![](./images/task3-your_ik.png)
 
-* Assignment spec and grading details: provided spec. 
-* Implementation: `fk.py` (forward kinematics + Jacobian). 
-* Implementation: `ik.py` (iterative DLS IK and comparison wrapper). 
+![](./images/task3-pybullet.png)
 
----
+`pybullet_ik` is much faster with lower latency spikes, while `your_ik` incurs higher average and worst-case solve times.
 
-If you want, I can:
-
-* produce a single-page PDF of this report ready for submission, or
-* attach a short table of hyperparameter values I used and the numeric mean errors from the provided testcases. Which would you prefer?
